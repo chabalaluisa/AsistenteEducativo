@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asistente Educativo</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.16/tailwind.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        <header class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Asistente Educativo</h1>
+            <div class="flex items-center">
+                <select id="model-select" class="mr-4 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <optgroup label="Modelos Gratuitos">
+                        <option value="google-gemini">Google Gemini (60 llamadas/min)</option>
+                        <option value="claude-2">Claude-2 (50 mensajes/día)</option>
+                    </optgroup>
+                    <optgroup label="Modelos de Pago">
+                        <option value="gpt-4">GPT-4 ($0.03/1K tokens)</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo ($0.01/1K tokens)</option>
+                    </optgroup>
+                </select>
+                <input type="text" id="api-key-input" class="mr-4 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Ingrese su clave API">
+                <button id="connect-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md">Conectar</button>
+                <button id="disconnect-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md ml-4">Desconectar</button>
+            </div>
+        </header>
+
+        <div class="bg-white shadow-md rounded-md p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-gray-800">Entrenamiento del Asistente</h2>
+                <div class="flex items-center">
+                    <select id="role-select" class="mr-4 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">Seleccione un rol</option>
+                        <option value="matematico">Matemático</option>
+                        <option value="fisico-teorico">Físico Teórico</option>
+                        <option value="fisico-aplicado">Físico Aplicado</option>
+                        <option value="biologo">Biólogo</option>
+                        <option value="ecologo">Ecólogo</option>
+                        <option value="medico">Médico</option>
+                        <option value="ingeniero-civil">Ingeniero Civil</option>
+                        <option value="ingeniero-electrico">Ingeniero Eléctrico</option>
+                        <option value="ingeniero-mecanico">Ingeniero Mecánico</option>
+                        <option value="quimico">Químico</option>
+                        <option value="biofisico">Biofísico</option>
+                    </select>
+                    <div class="flex items-center">
+                        <input type="file" id="document-input" class="hidden" multiple>
+                        <label for="document-input" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md cursor-pointer">Cargar Documentos</label>
+                        <input type="text" id="link-input" class="ml-4 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Ingrese enlaces aquí">
+                        <button id="load-data" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md ml-4">Cargar Datos</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="data-list" class="bg-gray-100 rounded-md p-4 mb-4 max-h-64 overflow-y-auto"></div>
+
+            <div class="relative h-4 bg-gray-300 rounded-full">
+                <div id="training-progress-bar" class="absolute left-0 top-0 h-full bg-blue-500 rounded-full transition-width duration-500"></div>
+            </div>
+        </div>
+
+        <div class="bg-white shadow-md rounded-md p-6 mt-6">
+            <div class="mb-4">
+                <h2 class="text-lg font-bold text-gray-800">Chat con el Asistente</h2>
+                <div id="connected-status" class="text-gray-500 mt-1 font-bold">Desconectado</div>
+                <div id="assistant-greeting" class="text-gray-500 mt-1 hidden"></div>
+                <div id="assistant-role" class="text-gray-500 mt-1 hidden"></div>
+            </div>
+            <div id="chat-messages" class="bg-gray-100 rounded-md p-4 mb-4 max-h-96 overflow-y-auto"></div>
+            <div class="flex">
+                <input type="text" id="user-input" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Escribe tu mensaje aquí...">
+                <button id="send-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md ml-4">Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DocumentSystem = {
+            storage: {
+                documents: new Map(),
+                links: new Map(),
+                currentRole: null,
+                currentDataSource: null,
+                isConnected: false,
+                apiKey: null
+            },
+
+            async initialize(apiKey, model) {
+                try {
+                    this.storage.apiKey = apiKey;
+                    this.storage.isConnected = true;
+                    console.log('Sistema inicializado correctamente con el modelo:', model);
+                    updateConnectionStatus(this.storage.isConnected);
+                    this.showAssistantGreeting();
+                } catch (error) {
+                    console.error('Error al inicializar el sistema:', error);
+                    updateConnectionStatus(false);
+                    alert('Ocurrió un error al inicializar el sistema. Por favor, inténtalo de nuevo.');
+                }
+            },
+
+            async processDocuments(documents, role) {
+                try {
+                    for (const document of documents) {
+                        const result = await this.processDocument(document, role);
+                        this.storage.documents.set(document.name, result);
+                        this.updateDataList(result.message);
+                    }
+                    this.updateTrainingProgress(100);
+                    this.showAssistantGreeting(role);
+                    this.showAssistantRole(role);
+                    alert('Entrenamiento completado con los documentos cargados.');
+                } catch (error) {
+                    console.error('Error al procesar documentos:', error);
+                    alert('Ocurrió un error al procesar los documentos. Por favor, inténtalo de nuevo.');
+                }
+            },
+
+            async processLinks(links, role) {
+                try {
+                    for (const link of links) {
+                        const result = await this.processLink(link, role);
+                        if (result.success) {
+                            this.storage.links.set(link, result);
+                            this.updateDataList(result.message);
+                        } else {
+                            this.updateDataList(`Error al procesar el enlace: ${link}`);
+                        }
+                    }
+                    this.updateTrainingProgress(100);
+                    this.showAssistantGreeting(role);
+                    this.showAssistantRole(role);
+                    alert('Entrenamiento completado con los enlaces cargados.');
+                } catch (error) {
+                    console.error('Error al procesar enlaces:', error);
+                    alert('Ocurrió un error al procesar los enlaces. Por favor, inténtalo de nuevo.');
+                }
+            },
+
+            async searchInData(query, dataSource, role) {
+                // Implementar la lógica de búsqueda en los documentos y enlaces cargados,
+                // adaptada al rol seleccionado, y devolver los resultados relevantes
+                return {
+                    success: true,
+                    results: []
+                };
+            },
+
+            async generateResponse(query, searchResults, role) {
+                // Generar una respuesta coherente utilizando la IA seleccionada, los datos de entrenamiento
+                // y adaptada al rol del asistente
+                switch (role) {
+                    case 'matematico':
+                        return `Hola, soy el asistente matemático. ¿Cómo puedo ayudarte con la factorización? Puedo explicarte los pasos y mostrarte algunos ejemplos sencillos de entender.`;
+                    case 'fisico-teorico':
+                        return `Hola, soy el asistente físico teórico. ¿En qué área de la física puedo ayudarte? Puedo brindarte explicaciones sobre teorías y conceptos fundamentales.`;
+                    case 'fisico-aplicado':
+                        return `Hola, soy el asistente físico aplicado. ¿Necesitas ayuda con alguna aplicación práctica de la física? Puedo explicarte cómo utilizar los principios físicos para resolver problemas.`;
+                    // Agrega más casos para los otros roles
+                    default:
+                        return `Hola, soy el asistente. ¿Cómo puedo ayudarte hoy?`;
+                }
+            },
+
+            updateDataList(message) {
+                const dataList = document.getElementById('data-list');
+                const dataItem = document.createElement('div');
+                dataItem.className = 'bg-white shadow-sm rounded-md p-2 mb-2';
+                dataItem.textContent = message;
+                dataList.appendChild(dataItem);
+            },
+
+            updateTrainingProgress(progress) {
+                const trainingProgressBar = document.getElementById('training-progress-bar');
+                trainingProgressBar.style.width = `${progress}%`;
+            },
+
+            showAssistantGreeting(role) {
+                const assistantGreeting = document.getElementById('assistant-greeting');
+                if (role) {
+                    assistantGreeting.textContent = `¡Hola, soy el asistente ${role}! ¿En qué puedo ayudarte?`;
+                } else {
+                    assistantGreeting.textContent = 'Hola, soy el asistente. ¿En qué puedo ayudarte?';
+                }
+                assistantGreeting.classList.remove('hidden');
+            },
+
+            showAssistantRole(role) {
+                const assistantRole = document.getElementById('assistant-role');
+                assistantRole.textContent = `Rol del asistente: ${role}`;
+                assistantRole.classList.remove('hidden');
+            }
+        };
+
+        async function handleMessage() {
+            const userInput = document.getElementById('user-input');
+            const query = userInput.value.trim();
+
+            if (!query) return;
+
+            try {
+                addMessage(query, true);
+                userInput.value = '';
+
+                const selectedRole = document.getElementById('role-select').value;
+                const response = await DocumentSystem.generateResponse(query, [], selectedRole);
+                addMessage(response, false);
+            } catch (error) {
+                console.error('Error al procesar el mensaje:', error);
+                addMessage('Ocurrió un error al procesar tu mensaje. Por favor, inténtalo de nuevo.', false);
+            }
+        }
+
+        function addMessage(text, isUser) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+            messageDiv.textContent = text;
+            document.getElementById('chat-messages').appendChild(messageDiv);
+            messageDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function updateConnectionStatus(status) {
+            const connectedStatus = document.getElementById('connected-status');
+            if (status) {
+                connectedStatus.textContent = 'Conectado';
+                connectedStatus.classList.remove('text-red-500');
+                connectedStatus.classList.add('text-green-500');
+            } else {
+                connectedStatus.textContent = 'Desconectado';
+                connectedStatus.classList.remove('text-green-500');
+                connectedStatus.classList.add('text-red-500');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const modelSelect = document.getElementById('model-select');
+            const roleSelect = document.getElementById('role-select');
+            const documentInput = document.getElementById('document-input');
+            const linkInput = document.getElementById('link-input');
+            const apiKeyInput = document.getElementById('api-key-input');
+            const connectButton = document.getElementById('connect-button');
+            const disconnectButton = document.getElementById('disconnect-button');
+            const loadDataButton = document.getElementById('load-data');
+            const dataList = document.getElementById('data-list');
+            const trainingProgressBar = document.getElementById('training-progress-bar');
+            let isConnected = false;
+
+            connectButton.addEventListener('click', async () => {
+                const selectedModel = modelSelect.value;
+                const apiKey = apiKeyInput.value.trim();
+
+                if (!apiKey) {
+                    alert('Por favor, ingrese una clave API válida.');
+                    return;
+                }
+
+                try {
+                    await DocumentSystem.initialize(apiKey, selectedModel);
+                    isConnected = true;
+                    updateConnectionStatus(isConnected);
+                } catch (error) {
+                    console.error('Error al conectar:', error);
+                    isConnected = false;
+                    updateConnectionStatus(isConnected);
+                    alert('Ocurrió un error al conectar. Por favor, inténtalo de nuevo.');
+                }
+            });
+
+            disconnectButton.addEventListener('click', () => {
+                isConnected = false;
+                updateConnectionStatus(isConnected);
+                apiKeyInput.value = '';
+                DocumentSystem.storage.isConnected = false;
+            });
+
+            loadDataButton.addEventListener('click', async () => {
+                const selectedRole = roleSelect.value;
+                const links = linkInput.value.split('\n');
+                const documents = Array.from(documentInput.files);
+
+                if (!selectedRole) {
+                    alert('Por favor, selecciona
